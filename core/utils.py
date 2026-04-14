@@ -1,6 +1,7 @@
 import os
-from typing import Final
+import pandas as pd
 from pathlib import Path
+from typing import Final, List
 from core.logging import LoggerFactory
 
 logger_factory = LoggerFactory()
@@ -45,3 +46,105 @@ class FetchFromKaggle:
         )
 
         self.logger.info("Dataset downloaded and extracted successfully")
+
+class CustomerEligibilityFilter:
+    """
+    Filters customers based on tenure and activity stability.
+
+    This class is intended to identify 'good' or 'stable' customers
+    before downstream tasks such as clustering or segmentation.
+
+    Filtering criteria:
+    - Minimum tenure (in years)
+    - Minimum average number of active months per year
+    """
+
+    def __init__(
+        self,
+        year_col: str,
+        month_col: str,
+        customer_id_col: str,
+        min_tenure_years: float,
+        min_avg_active_months_per_year: float,
+    ):
+        self.year_col = year_col
+        self.month_col = month_col
+        self.customer_id_col = customer_id_col
+        self.min_tenure_years = min_tenure_years
+        self.min_avg_active_months_per_year = min_avg_active_months_per_year
+
+        logger.info(
+            "CustomerEligibilityFilter initialized | min_tenure_years=%s, min_avg_active_months_per_year=%s",
+            min_tenure_years,
+            min_avg_active_months_per_year,
+        )
+
+    def filter_customers(self, df: pd.DataFrame) -> List[str]:
+        """
+        Filters eligible customers from the input DataFrame.
+
+        Parameters
+        ----------
+        df : pd.DataFrame
+            Input transactional or aggregated dataset containing
+            customer, year, and month information.
+
+        Returns
+        -------
+        List[str]
+            List of customer IDs satisfying eligibility criteria.
+        """
+
+        logger.debug("Starting customer eligibility filtering")
+        logger.debug("Input dataframe shape: %s", df.shape)
+
+        # Deduplicate at (customer, year, month) level
+        df_unique = df[
+            [self.customer_id_col, self.year_col, self.month_col]
+        ].drop_duplicates()
+
+        logger.debug("After deduplication shape: %s", df_unique.shape)
+
+        # Monthly activity per customer-year
+        yearly_activity = (
+            df_unique
+            .groupby([self.customer_id_col, self.year_col], sort=False)
+            .size()
+            .rename("active_months")
+            .reset_index()
+        )
+
+        # Aggregate to customer-level metrics
+        customer_metrics = (
+            yearly_activity
+            .groupby(self.customer_id_col, sort=False)
+            .agg(
+                total_active_months=("active_months", "sum"),
+                avg_active_months_per_year=("active_months", "mean"),
+            )
+            .reset_index()
+        )
+
+        logger.debug(
+            "Computed customer metrics for %d customers",
+            customer_metrics.shape[0],
+        )
+
+        # Apply eligibility criteria
+        eligible_customers = customer_metrics.loc[
+            (customer_metrics["total_active_months"] >= 12 * self.min_tenure_years)
+            & (
+                customer_metrics["avg_active_months_per_year"]
+                >= self.min_avg_active_months_per_year
+            ),
+            self.customer_id_col,
+        ]
+
+        logger.info(
+            "Eligible customers identified: %d out of %d",
+            eligible_customers.shape[0],
+            customer_metrics.shape[0],
+        )
+
+        return eligible_customers.tolist()
+    
