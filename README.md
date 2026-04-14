@@ -32,17 +32,3 @@ The system is built on a large-scale FMCG transaction dataset.
 The dataset captures purchasing behaviour across thousands of independent retailers.
 
 ---
-
-## Core Idea
-
-Instead of recommending products based on simple similarity, the system models **shop behaviour over time**.
-
-Key signals include:
-
-- purchase frequency
-- brand affinity
-- seasonal demand patterns
-- SKU co-occurrence
-- shop behavioural clusters
-
-Using these signals, the system estimates the probability:
